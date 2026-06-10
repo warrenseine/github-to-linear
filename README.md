@@ -1,6 +1,10 @@
 # GitHub PR → Linear Review
 
-Chrome extension that adds a **"View in Linear"** tab to GitHub pull request pages, next to "Files changed". Clicking it:
+Chrome extension that adds a **"View in Linear"** tab to GitHub pull request pages, next to "Files changed".
+
+![The View in Linear tab on a GitHub pull request](screenshot.jpg)
+
+Clicking it:
 
 1. Checks whether you're a reviewer on the PR — if not (and you're not the author), self-assigns you via the Reviewers sidebar.
 2. Opens your Linear workspace's `/reviews` page in a new tab.
