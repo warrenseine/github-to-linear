@@ -374,8 +374,13 @@ function injectTab(): void {
   const tab = document.createElement("a");
   tab.id = TAB_ID;
   tab.href = "#";
-  tab.className = filesTab.className;
-  tab.classList.remove("selected");
+  // Clone the Files tab's classes but drop every "selected" marker — the React
+  // UI flags the active tab with both `selected` and a hashed
+  // `prc-TabNav-Selected-*` class, and the latter draws the active border.
+  tab.className = filesTab.className
+    .split(/\s+/)
+    .filter((cls) => cls !== "selected" && !/Selected/.test(cls))
+    .join(" ");
   tab.removeAttribute("aria-current");
   tab.setAttribute("aria-selected", "false");
   tab.innerHTML = LINEAR_ICON_SVG;
@@ -383,6 +388,13 @@ function injectTab(): void {
   label.textContent = "View in Linear";
   tab.appendChild(label);
   tab.style.cursor = "pointer";
+  // <a href="#"> otherwise inherits GitHub's blue link color. Pin it to the
+  // tab text color (read from the active tab, which is never muted) so the
+  // label + icon match the other tabs by default, not just on hover.
+  const activeTab = document.querySelector<HTMLElement>(
+    '[role="tab"][aria-selected="true"], .tabnav-tab.selected'
+  );
+  tab.style.color = getComputedStyle(activeTab ?? filesTab).color;
 
   tab.addEventListener("click", (event) => {
     event.preventDefault();
