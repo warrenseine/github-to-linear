@@ -4,12 +4,7 @@ import { cpSync, mkdirSync } from "node:fs";
 const watch = process.argv.includes("--watch");
 
 const options = {
-  entryPoints: [
-    "src/github.ts",
-    "src/linear.ts",
-    "src/background.ts",
-    "src/options.ts",
-  ],
+  entryPoints: ["src/github.ts"],
   outdir: "dist",
   bundle: true,
   format: "iife",
@@ -21,7 +16,6 @@ const options = {
 function copyStatic() {
   mkdirSync("dist/icons", { recursive: true });
   cpSync("manifest.json", "dist/manifest.json");
-  cpSync("src/options.html", "dist/options.html");
   for (const size of [16, 48, 128]) {
     cpSync(`icons/icon${size}.png`, `dist/icons/icon${size}.png`);
   }

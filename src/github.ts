@@ -1,5 +1,3 @@
-import type { OpenLinearMessage } from "./shared";
-
 const TAB_ID = "gtl-view-in-linear-tab";
 
 // Linear logo glyph (viewBox 0 0 100 100), official mark — same path as icons/linear.svg
@@ -8,326 +6,18 @@ const LINEAR_LOGO_PATH =
 
 const LINEAR_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 100 100" aria-hidden="true" style="margin-right:8px;flex-shrink:0;vertical-align:text-bottom"><path d="${LINEAR_LOGO_PATH}" fill="currentColor"/></svg>`;
 
-function isPrPage(): boolean {
-  return /^\/[^/]+\/[^/]+\/pull\/\d+/.test(location.pathname);
-}
-
-function prBaseUrl(): string {
-  const match = location.pathname.match(/^(\/[^/]+\/[^/]+\/pull\/\d+)/);
-  return match ? `${location.origin}${match[1]}` : location.href;
-}
-
-function waitFor<T>(
-  probe: () => T | null | undefined,
-  timeoutMs: number,
-  intervalMs = 100
-): Promise<T | null> {
-  return new Promise((resolve) => {
-    const startedAt = Date.now();
-    const tick = () => {
-      const result = probe();
-      if (result) return resolve(result);
-      if (Date.now() - startedAt >= timeoutMs) return resolve(null);
-      setTimeout(tick, intervalMs);
-    };
-    tick();
-  });
-}
-
-function showToast(message: string, isError = false): void {
-  document.getElementById("gtl-toast")?.remove();
-  const toast = document.createElement("div");
-  toast.id = "gtl-toast";
-  toast.textContent = message;
-  toast.style.cssText = [
-    "position:fixed",
-    "bottom:16px",
-    "right:16px",
-    "z-index:2147483647",
-    `background:${isError ? "#cf222e" : "#1f2328"}`,
-    "color:#fff",
-    "padding:10px 14px",
-    "border-radius:8px",
-    "font-size:13px",
-    "max-width:360px",
-    "box-shadow:0 4px 12px rgba(0,0,0,.3)",
-  ].join(";");
-  document.body.appendChild(toast);
-  setTimeout(() => toast.remove(), 6000);
-}
-
-// --- PR metadata -----------------------------------------------------------
-
-function getCurrentUsername(): string | null {
-  return (
-    document
-      .querySelector<HTMLMetaElement>('meta[name="user-login"]')
-      ?.content?.trim() || null
-  );
-}
-
-function getPrTitle(): string | null {
-  const selectors = [
-    'h1[class*="PageHeader-Title"] .markdown-title',
-    '[data-testid="issue-title"]',
-    "bdi.js-issue-title",
-    ".js-issue-title",
-    ".gh-header-title .markdown-title",
-  ];
-  for (const selector of selectors) {
-    const text = document.querySelector(selector)?.textContent?.trim();
-    if (text) return text;
-  }
-  return null;
-}
-
-function getHeadBranch(): string | null {
-  let text: string | undefined;
-
-  // New React UI: BranchName anchors render as "base, head" pairs
-  const branchNames = [
-    ...document.querySelectorAll<HTMLElement>(
-      'a[class*="branchName"], a[class*="BranchName"]'
-    ),
-  ].map((el) => el.textContent?.trim() ?? "");
-  if (branchNames.length > 0) {
-    // head = first entry that differs from the base (first entry)
-    text = branchNames.find((name) => name && name !== branchNames[0]);
-    text ??= branchNames[0];
-  }
-
-  if (!text) {
-    const selectors = [".head-ref", '[data-testid="head-ref"]'];
-    for (const selector of selectors) {
-      text = document.querySelector(selector)?.textContent?.trim();
-      if (text) break;
-    }
-  }
-  if (!text) {
-    // classic UI: base ref comes first, head ref second
-    const refs = document.querySelectorAll(".commit-ref");
-    text = refs[1]?.textContent?.trim();
-  }
-  if (!text) return null;
-  // cross-repo PRs render as "owner:branch"
-  return text.includes(":") ? text.slice(text.indexOf(":") + 1) : text;
-}
-
-function getPrAuthor(): string | null {
-  const selectors = [
-    ".gh-header-meta a.author",
-    '[data-testid="issue-body-header"] a[data-hovercard-type="user"]',
-    ".timeline-comment-header a.author",
-  ];
-  for (const selector of selectors) {
-    const text = document.querySelector(selector)?.textContent?.trim();
-    if (text) return text;
-  }
-  return null;
-}
-
-// --- Reviewers sidebar -----------------------------------------------------
-
-function findReviewersSection(): HTMLElement | null {
-  // Classic UI: .discussion-sidebar-item with a "Reviewers" heading
-  for (const item of document.querySelectorAll<HTMLElement>(
-    ".discussion-sidebar-item"
-  )) {
-    const heading = item.querySelector(".discussion-sidebar-heading");
-    if (heading?.textContent?.trim().startsWith("Reviewers")) return item;
-  }
-  // New React UI / generic: any small heading whose text is exactly "Reviewers"
-  for (const heading of document.querySelectorAll<HTMLElement>(
-    "h2, h3, span, div"
-  )) {
-    if (heading.childElementCount > 0) continue;
-    if (heading.textContent?.trim() !== "Reviewers") continue;
-    const section = heading.closest<HTMLElement>(
-      '[data-testid*="sidebar"], section, .discussion-sidebar-item'
-    );
-    if (section) return section;
-  }
-  return null;
-}
-
-function isListedAsReviewer(section: HTMLElement, username: string): boolean {
-  const userPath = `/${username}`.toLowerCase();
-  for (const anchor of section.querySelectorAll<HTMLAnchorElement>("a[href]")) {
-    try {
-      if (new URL(anchor.href).pathname.toLowerCase() === userPath) return true;
-    } catch {
-      // ignore unparsable hrefs
-    }
-  }
-  return false;
-}
-
-async function assignViaClassicMenu(
-  section: HTMLElement,
-  username: string
-): Promise<boolean> {
-  const details = section.querySelector<HTMLDetailsElement>("details");
-  const summary = details?.querySelector<HTMLElement>("summary");
-  if (!details || !summary) return false;
-
-  summary.click(); // opens the menu and triggers the lazy include-fragment load
-
-  const item = await waitFor(() => {
-    for (const candidate of details.querySelectorAll<HTMLElement>(
-      "label.select-menu-item, .select-menu-item, [role='menuitemcheckbox']"
-    )) {
-      const login =
-        candidate.querySelector(".js-username")?.textContent?.trim() ??
-        candidate.textContent?.trim().split(/\s+/)[0];
-      if (login?.toLowerCase() === username.toLowerCase()) return candidate;
-    }
-    return null;
-  }, 6000);
-
-  if (!item) {
-    if (details.open) summary.click();
-    return false;
-  }
-
-  item.click();
-  // Classic UI submits reviewer changes when the menu closes
-  if (details.open) summary.click();
-  return true;
-}
-
-async function assignViaReactDialog(
-  section: HTMLElement,
-  username: string
-): Promise<boolean> {
-  const editButton =
-    section.querySelector<HTMLElement>(
-      'button[aria-label*="reviewer" i], button[aria-label*="Reviewers" i]'
-    ) ??
-    [...section.querySelectorAll<HTMLElement>("button")].find((button) =>
-      /edit/i.test(button.textContent ?? "")
-    ) ??
-    null;
-  if (!editButton) return false;
-
-  editButton.click();
-
-  const filterInput = await waitFor(
-    () =>
-      document.querySelector<HTMLInputElement>(
-        '[role="dialog"] input[type="text"], [role="dialog"] input:not([type]), [data-testid*="picker"] input'
-      ),
-    3000
-  );
-  if (filterInput) {
-    const valueSetter = Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
-      "value"
-    )?.set;
-    valueSetter?.call(filterInput, username);
-    filterInput.dispatchEvent(new Event("input", { bubbles: true }));
-  }
-
-  const option = await waitFor(() => {
-    for (const candidate of document.querySelectorAll<HTMLElement>(
-      '[role="dialog"] [role="option"], [role="listbox"] [role="option"]'
-    )) {
-      if (
-        candidate.textContent?.toLowerCase().includes(username.toLowerCase())
-      ) {
-        return candidate;
-      }
-    }
-    return null;
-  }, 6000);
-
-  if (!option) {
-    document.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
-    );
-    return false;
-  }
-
-  option.click();
-  // Close the picker so the change is saved
-  (filterInput ?? option).dispatchEvent(
-    new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
-  );
-  document
-    .querySelector<HTMLElement>('[role="dialog"] button[aria-label*="lose" i]')
-    ?.click();
-  return true;
+function prPath(): string | null {
+  return location.pathname.match(/^(\/[^/]+\/[^/]+\/pull\/\d+)/)?.[1] ?? null;
 }
 
 /**
- * Best-effort: make sure the current user is a reviewer. Returns true when the
- * user is (or just became) a reviewer; false means "couldn't do it via DOM".
+ * Linear's review URL mirrors the GitHub repo path verbatim:
+ * github.com/owner/repo/pull/123 → linear.app/review/owner/repo/pull/123.
+ * Linear redirects this to the canonical opaque-slug review, so no lookup or
+ * workspace config is needed.
  */
-async function ensureReviewer(username: string): Promise<boolean> {
-  const section = findReviewersSection();
-  if (!section) return false;
-  if (isListedAsReviewer(section, username)) return true;
-
-  const assigned =
-    (await assignViaClassicMenu(section, username)) ||
-    (await assignViaReactDialog(section, username));
-  if (!assigned) return false;
-
-  // GitHub updates the sidebar asynchronously after the menu closes
-  const confirmed = await waitFor(() => {
-    const freshSection = findReviewersSection();
-    return freshSection && isListedAsReviewer(freshSection, username)
-      ? true
-      : null;
-  }, 8000, 250);
-  return confirmed === true;
-}
-
-// --- Click flow ------------------------------------------------------------
-
-let clickInFlight = false;
-
-async function onTabClick(_tab: HTMLElement, label: HTMLElement): Promise<void> {
-  if (clickInFlight) return;
-  clickInFlight = true;
-  const originalText = label.textContent;
-  label.textContent = "Opening Linear…";
-
-  try {
-    const title = getPrTitle();
-    const username = getCurrentUsername();
-    const branch = getHeadBranch() ?? "";
-
-    if (!title) {
-      showToast("Couldn't read the PR title — aborting.", true);
-      return;
-    }
-
-    if (username) {
-      const author = getPrAuthor();
-      const isAuthor =
-        author !== null && author.toLowerCase() === username.toLowerCase();
-      if (!isAuthor) {
-        const ok = await ensureReviewer(username);
-        if (!ok) {
-          showToast(
-            "Couldn't auto-assign you as reviewer — add yourself manually. Opening Linear anyway…",
-            true
-          );
-        }
-      }
-    }
-
-    const message: OpenLinearMessage = {
-      type: "open-linear",
-      title,
-      branch,
-      prUrl: prBaseUrl(),
-    };
-    await chrome.runtime.sendMessage(message);
-  } finally {
-    label.textContent = originalText;
-    clickInFlight = false;
-  }
+function linearReviewUrl(path: string): string {
+  return `https://linear.app/review${path}`;
 }
 
 // --- Tab injection ---------------------------------------------------------
@@ -337,10 +27,8 @@ async function onTabClick(_tab: HTMLElement, label: HTMLElement): Promise<void> 
  * tab itself: an <a> inside the PR tablist whose pathname is "<pr>/changes"
  * (new React UI) or "<pr>/files" (classic UI).
  */
-function findFilesTab(): HTMLAnchorElement | null {
-  const prPath = location.pathname.match(/^(\/[^/]+\/[^/]+\/pull\/\d+)/)?.[1];
-  if (!prPath) return null;
-  const targets = new Set([`${prPath}/changes`, `${prPath}/files`]);
+function findFilesTab(path: string): HTMLAnchorElement | null {
+  const targets = new Set([`${path}/changes`, `${path}/files`]);
   const matches: HTMLAnchorElement[] = [];
   for (const anchor of document.querySelectorAll<HTMLAnchorElement>(
     'a[href*="/changes"], a[href*="/files"]'
@@ -359,13 +47,14 @@ function findFilesTab(): HTMLAnchorElement | null {
 }
 
 function injectTab(): void {
-  if (!isPrPage()) {
+  const path = prPath();
+  if (!path) {
     document.getElementById(TAB_ID)?.remove();
     return;
   }
   if (document.getElementById(TAB_ID)) return;
 
-  const filesTab = findFilesTab();
+  const filesTab = findFilesTab(path);
   if (!filesTab) {
     console.debug("[gtl] Files changed tab not found, cannot inject");
     return;
@@ -373,7 +62,9 @@ function injectTab(): void {
 
   const tab = document.createElement("a");
   tab.id = TAB_ID;
-  tab.href = "#";
+  tab.href = linearReviewUrl(path);
+  tab.target = "_blank";
+  tab.rel = "noopener";
   // Clone the Files tab's classes but drop every "selected" marker — the React
   // UI flags the active tab with both `selected` and a hashed
   // `prc-TabNav-Selected-*` class, and the latter draws the active border.
@@ -387,20 +78,13 @@ function injectTab(): void {
   const label = document.createElement("span");
   label.textContent = "View in Linear";
   tab.appendChild(label);
-  tab.style.cursor = "pointer";
-  // <a href="#"> otherwise inherits GitHub's blue link color. Pin it to the
-  // tab text color (read from the active tab, which is never muted) so the
-  // label + icon match the other tabs by default, not just on hover.
+  // <a> otherwise inherits GitHub's blue link color. Pin it to the tab text
+  // color (read from the active tab, which is never muted) so the label + icon
+  // match the other tabs by default, not just on hover.
   const activeTab = document.querySelector<HTMLElement>(
     '[role="tab"][aria-selected="true"], .tabnav-tab.selected'
   );
   tab.style.color = getComputedStyle(activeTab ?? filesTab).color;
-
-  tab.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    void onTabClick(tab, label);
-  });
 
   // Mirror the structure of the Files changed tab (it may sit inside an <li>)
   const filesItem = filesTab.closest("li");

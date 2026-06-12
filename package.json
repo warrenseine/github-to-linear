@@ -2,7 +2,7 @@
   "name": "github-to-linear",
   "version": "0.1.0",
   "private": true,
-  "description": "Chrome extension: adds a 'View in Linear' tab to GitHub PRs, self-assigns as reviewer and jumps to the Linear PR review.",
+  "description": "Chrome extension: adds a 'View in Linear' tab to GitHub PRs that opens the matching Linear review.",
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && node build.mjs",
